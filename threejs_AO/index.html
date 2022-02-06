@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>three.js webgl - raymarching - reflect</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+        <link rel="stylesheet" href="style.css" type="text/css">
+    </head>
+    <body>
+<script id="vertex_shader" type="x-shader/x-vertex">
+    attribute vec3 position;
+    void main(void) {
+        gl_Position = vec4(position, 1.0);
+    }
+</script>
+
+<script src="js/three.min.js"></script>
+<script src="js/controls/FlyControls.js"></script>
+<script src="js/libs/dat.gui.min.js"></script>
+<script src="js/libs/stats.min.js"></script>
+<!--
+<script src="http://github.com/mrdoob/stats.js"></script>
+<script src="https://github.com/dataarts/dat.gui"></script>
+-->
+
+<script>
+var camera, scene, controls, renderer;
+var geometry, material, mesh;
+var mouse = new THREE.Vector2( 0.5, 0.5 );
+var canvas;
+var view_center;
+var stats;
+var rotation_function = function(x, y){};
+var clock = new THREE.Clock();
+var config = {
+    saveImage: function() {
+        renderer.render( scene, camera );
+        window.open( canvas.toDataURL() );
+    },
+    resolution: '512',
+    cameraReset: camera_init,
+    renderPattern: "p wave solid",
+    atom_on: "ON"
+};
+
+
+var fragment_set ={
+    "p wave solid": ['header.frag', 'wave_px.frag', 'wavefunc_solid.frag', 'render.frag'],
+    "d wave solid": ['header.frag', 'wave_dzr.frag', 'wavefunc_solid.frag', 'render.frag'],
+    "d wave fog": ['header.frag', 'wave_dzr.frag', 'wavefunc_fog_render.frag'],
+}
+
+async function loadResources(urls, resource_store_textarea) {
+    if(urls.length == 0){
+        material_init(resource_store_textarea.value);
+        render();
+        return;
+    }
+    var promises = urls.map(function(url){
+        return new Promise( function (resolve, reject){
+            var request = new XMLHttpRequest();
+            function error_callback() {
+                console.log("Error while loading '" + url + "'.");
+                reject(new Error(request.statusText));
+            }
+            request.open('GET', "frag_files/" + url, true);
+            request.setRequestHeader('Pragma', 'no-cache');
+            request.setRequestHeader('Cache-Control', 'no-cache');
+            request.setRequestHeader('If-Modified-Since', 'Thu, 01 Jun 1970 00:00:00');
+            request.responseType = "text";
+            request.onload = function () {
+                if (request.readyState == 4 || request.status == 200) {
+                    console.log("Successfully '" + url + "' loaded.");
+                    resolve(request.responseText);
+                } else { 
+                    error_callback();
+                }
+            };
+            request.onerror = error_callback;
+            request.send(null);
+        });
+
+    });
+
+    result = (await Promise.all(promises)).join("\n");
+    resource_store_textarea.value = result;
+    compile_code(result);
+}
+
+function camera_init(){
+    camera.position.set(0.0, 0.0, 5.0);
+    camera.lookAt( new THREE.Vector3( 0.0, 0.0, 0.0 ));
+    camera.up.set(0.0, 1.0, 0.0);
+    view_center = new THREE.Vector3(0.0, 0.0, 0.0);
+}
+
+var rotation_horizon = function(angle){
+    camera.position.sub(view_center);
+    var r = camera.position.length();
+    right_dir = camera.position.clone().cross(camera.up).normalize();
+    camera.position.addScaledVector(right_dir, r*angle/2.0);
+    camera.position.setLength(r);
+    camera.position.add(view_center);
+}
+function rotation_vertical(angle){
+    camera.position.sub(view_center);
+    var r = camera.position.length();
+    camera.position.addScaledVector(camera.up, r*angle/2.0);
+    camera.position.setLength(r);
+    camera.up = camera.position.clone().cross(camera.up).normalize();
+    camera.up.cross(camera.position).normalize();
+    camera.position.add(view_center);
+}
+
+function move_forward(dx){
+    dr = camera.position.clone().sub(view_center).multiplyScalar(- dx);
+    camera.position.add(dr);
+    view_center.add(dr)
+}
+
+function camera_pan(angle){
+    look_vec = view_center.clone().sub(camera.position);
+    r = look_vec.length();
+    right_dir = look_vec.clone().cross(camera.up);
+    look_vec.addScaledVector(right_dir, angle/2.0).setLength(r);
+    view_center.addVectors(camera.position, look_vec);
+}
+
+function camera_tilt(angle){
+    look_vec = view_center.clone().sub(camera.position);
+    r = look_vec.length();
+    look_vec.addScaledVector(camera.up, angle*2.0).setLength(r);
+    view_center.addVectors(camera.position, look_vec);
+}
+
+function material_init(fragment_code){
+    scene = new THREE.Scene();
+    geometry = new THREE.PlaneBufferGeometry( 2.0, 2.0 );
+    material = new THREE.RawShaderMaterial( {
+        uniforms: {
+            resolution: { value: new THREE.Vector2( canvas.width, canvas.height ) },
+            cameraWorldMatrix: { value: camera.matrixWorld },
+            cameraProjectionMatrixInverse: { value: new THREE.Matrix4().getInverse( camera.projectionMatrix ) },
+        },
+        vertexShader: document.getElementById( 'vertex_shader' ).textContent,
+        fragmentShader: fragment_code
+    } );
+    mesh = new THREE.Mesh( geometry, material );
+    mesh.frustumCulled = false;
+    scene.add( mesh );
+}
+
+function init() {
+    renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setSize( config.resolution, config.resolution );
+    canvas = renderer.domElement;
+    canvas.addEventListener( 'mousedown', onMouseDown, false );
+    canvas.addEventListener( 'mouseup', onMouseUp, false );
+    canvas.addEventListener( 'mouseout', function(e){onMouseUp(e);}, false );
+    canvas.addEventListener( 'mousemove', onMouseMove, false );
+    canvas.addEventListener( 'mousewheel', onMouseWheel, false);
+    document.addEventListener( 'keydown', onKeyDown, false);
+    window.addEventListener( 'resize', onWindowResize );
+    document.body.appendChild( canvas );
+    // Scene
+    camera = new THREE.PerspectiveCamera( 60, canvas.width / canvas.height, 1, 2000 );
+}
+
+function init_controls(){
+    // Controls
+    controls = new THREE.FlyControls( camera, canvas );
+    controls.autoForward = true;
+    controls.dragToLook = false;
+    controls.rollSpeed = Math.PI / 12;
+    controls.movementSpeed = 0.5;
+    // GUI
+    var gui = new dat.GUI();
+    gui.add( config, 'saveImage' ).name( 'Save Image' );
+    gui.add( config, 'resolution', [ '256', '512', '800', 'full' ] ).name( 'Resolution' ).onChange( function( value ) {
+        if ( value !== 'full' ) {
+            canvas.width = value;
+            canvas.height = value;
+        }
+        onWindowResize();
+    } );
+    gui.add( config, 'renderPattern', Object.keys(fragment_set)).name("Pattern").onChange( function( value ){
+        fragment_files = fragment_set[value];
+        loadResources(fragment_files, fragment_code);
+    } );
+    gui.add( config, 'cameraReset').name("Reset Camera");
+    stats = new Stats();
+    document.body.appendChild( stats.domElement );
+    fragment_code = document.createElement("textarea");
+    fragment_code.id = "fragment-code";
+    fragment_code.onChange = function(e){load_render_code();};
+    document.body.appendChild(fragment_code);
+}
+
+function compile_code(){
+    fragment_code = document.getElementById("fragment-code");
+    material_init(fragment_code.value);
+    render();
+}
+
+function render( timestamp ) {
+    var delta = clock.getDelta();
+    stats.begin();
+    camera.lookAt(view_center);
+    material.uniforms.resolution.value.set( canvas.width, canvas.height );
+    material.uniforms.cameraProjectionMatrixInverse.value.getInverse( camera.projectionMatrix );
+    renderer.render( scene, camera );
+    stats.end();
+    requestAnimationFrame( render );
+}
+
+function onMouseDown( event ) {
+    rotation_function = function(x, y){
+        rot_speed = 10.0;// controls.rollSpeed;
+        rotation_horizon(x*rot_speed);
+        rotation_vertical(y*rot_speed);
+    }
+}
+
+function onMouseMove( event ) {
+    px = mouse.x;
+    py = mouse.y;
+    mouse.x = event.clientX / canvas.width;
+    mouse.y = event.clientY / canvas.height;
+    rotation_function(mouse.x - px, mouse.y - py);
+}
+
+function onMouseUp( event ) {
+    rotation_function = function(x, y){};
+}
+
+var delta = 0.05;
+function onMouseWheel( event ){
+    if(event.wheelDelta > 0){
+        camera.position.multiplyScalar(1. + delta);
+    }else{
+        camera.position.multiplyScalar(1. - delta);
+    }
+}
+
+function onKeyDown( event ){
+    if(event.keyCode === 87){
+        move_forward(0.01);
+    }
+    if(event.keyCode === 83){
+        move_forward(-0.01);
+    }
+    if(event.keyCode === 37){
+        camera_pan(0.05);
+    }
+    if(event.keyCode === 39){
+        camera_pan(-0.05);
+    }
+    if(event.keyCode === 38){
+        camera_tilt(0.05);
+    }
+    if(event.keyCode === 40){
+        camera_tilt(-0.05);
+    }
+}
+
+function onWindowResize( e ) {
+    if ( config.resolution === 'full' ) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    renderer.setSize( canvas.width, canvas.height );
+}
+
+init();
+init_controls();
+camera_init();
+loadResources( ['header.frag', 'wave_px.frag', 'wavefunc_solid.frag', 'render.frag'], fragment_code);
+        </script>
+    </body>
+</html>

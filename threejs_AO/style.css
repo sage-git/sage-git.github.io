@@ -1,0 +1,30 @@
+body {
+    background-color: black;
+    margin: 0;
+    padding: 0;
+}
+a { color: skyblue }
+canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: auto;
+}
+#info {
+    color: white;
+    font-size: 13px;
+    position: absolute;
+    bottom: 10px;
+    width: 100%;
+    text-align: center;
+    z-index: 100;
+}
+#fragment-code {
+    overflow: scroll;
+    white-space: nowrap;
+    font-family: 'Courier New', Courier, monospace;
+    visibility: hidden;
+}
