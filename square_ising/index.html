@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8"/>
+    <script type="text/javascript" src="./pixi.min.js"></script>
+    <script type="text/javascript" src="./ising.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<style type="text/css">
+.setting_slider {
+  width: 400px;
+}
+</style>
+<body>
+
+<script type="text/javascript">
+var pixel_width = 5;
+var nWidth = 100;
+var nHeight = 120;
+var nNode = nWidth*nHeight;
+var width = nWidth * pixel_width;
+var height = nHeight * pixel_width;
+var system = new IsingModel();
+system.setNodes({nnode:nNode, H_interaction:0.5});
+var edge = [];
+var edge_J = [];
+var idx = 0;
+var J0 = -1.0;
+var T0 = 0.1;
+var H0 = 0.0;
+for(var iy = 0; iy < nHeight; iy ++){
+  for(var ix = 0; ix < nWidth; ix ++){
+    var right = (ix == nWidth - 1)? idx - nWidth + 1 : idx + 1;
+    var up = (iy == 0)? idx + (nHeight - 1)*nWidth: idx - nWidth;
+    var down = (iy == nHeight - 1)? idx - (nHeight - 1)*nWidth: idx + nWidth;
+    var tl = (ix == 0)? up + nWidth - 1: up - 1;
+    var tr = (ix == nWidth - 1)? up - nWidth + 1 : up + 1;
+    edge.push([idx, right],  [idx, down], [idx, tl], [idx, tr]);
+    edge_J.push(J0, J0, J0, J0);
+    idx ++;
+  }
+}
+system.setInteraction({J_interaction: edge_J, J_list:edge});
+system.setExternal({External_H: H0, temperature:T0});
+
+var app = new PIXI.Application({
+    view: document.getElementById("canvas"),
+    width: width,
+    height: height,
+    antialias: true,
+    transparent: false,
+    backgroundColor: 0x111111
+});
+app.renderer.autoResize = true;
+app.stage.interactive = true;
+document.body.appendChild(app.view)
+var capture = false;
+function step_grow(only_render) {
+    if(!only_render){system.step();}
+    var states = system.getState();
+    app.stage.removeChildren();
+    var graphic = new PIXI.Graphics();
+    var idx = 0;
+    for(var iy = 0; iy < nHeight; iy ++){
+      for(var ix = 0; ix < nWidth; ix ++){
+        if(states[idx ++] === -1){continue;}
+//        var color_width = 0x90;
+//        var color_bias = 0xffffff - color_width * 0x10101;
+//        var color = Math.floor(color_width*Math.random())*0x10000 + Math.floor(color_width*Math.random())*0x100  + color_width*Math.random() + color_bias;
+        var color = 0xaaaaaa;
+        graphic.beginFill(color);
+        var tlx = ix * pixel_width;
+        var tly = iy * pixel_width;
+        graphic.drawRect(tlx, tly, pixel_width, pixel_width);
+      }
+    }
+    app.stage.addChild(graphic);
+    app.renderer.render(stage);
+    //document.getElementById("canvas").getContext('experimental-webgl', {preserveDrawingBuffer: true});
+    if(capture){
+      var image_png = renderer.view.toDataURL();
+      document.getElementById("screenshot").src = image_png;
+      capture = false;
+    }
+}
+step_grow(true);
+</script>
+
+<p>
+<button type="button" id="ssbut">
+<font size="4" color="#333399">screen shot</font>
+</button>
+<button type="button" id="start_grow">
+<font size="4" color="#333399">start</font>
+</button>
+<button type="button" id="step_sys">
+<font size="4" color="#333399">step</font>
+</button>
+<button type="button" id="stop_grow">
+<font size="4" color="#333399">stop</font>
+</button>
+<button type="button" id="reset_sys">
+<font size="4" color="#333399">reset</font>
+</button>
+</p>
+<p>
+<div id="temperature">T=0</div><input class="setting_slider" id="temp_set" type="range" min="-6" max="4" step="0.1" onchange="changeTemp()"/>
+<div id="external_H">H=0</div><input class="setting_slider" id="extH_set" type="range" min="-10" max="10" step="0.1" onchange="changeExtH()"/>
+<div id="interact_J">J=0</div><input class="setting_slider" id="intJ_set" type="range" min="-1" max="1" step="0.1" onchange="changeIntJ()"/>
+</p>
+
+<p>
+<img id = "screenshot" />
+</p>
+
+<script>
+var interval_id;
+document.getElementById("temperature").innerHTML = "T = " + T0;
+document.getElementById("temp_set").value = Math.log(T0);
+document.getElementById("external_H").innerHTML = "H<sub>ext</sub> = " + H0;
+document.getElementById("extH_set").value = H0;
+document.getElementById("interact_J").innerHTML = "J = " + J0;
+document.getElementById("intJ_set").value = Math.log(T0);
+
+function changeTemp(){
+  var T = Math.exp(document.getElementById("temp_set").value);
+  document.getElementById("temperature").innerHTML = "T = " + T;
+  system.setTemperature(T);
+}
+function changeExtH(){
+  var H = document.getElementById("extH_set").value;
+  document.getElementById("external_H").innerHTML = "H<sub>ext</sub> = " + H;
+  system.setExternalH(H);
+}
+function changeIntJ(){
+  var J = document.getElementById("intJ_set").value;
+  document.getElementById("interact_J").innerHTML = "J = " + J;
+  for(var i = 0; i < edge_J.length; i ++){
+    edge_J[i] = J;
+  }
+  system.reset_J_values(edge_J);
+}
+document.getElementById('start_grow').addEventListener('click', function() {
+    clearInterval(interval_id);
+    interval_id = setInterval(function(){step_grow(false)}, 50);
+    return; });
+document.getElementById('stop_grow').addEventListener('click', function() {
+    clearInterval(interval_id);
+    return; });
+document.getElementById('reset_sys').addEventListener('click', function() {
+    clearInterval(interval_id);
+    system.Reset();
+    step_grow(true);
+    return; });
+document.getElementById('step_sys').addEventListener('click', function() {
+    clearInterval(interval_id);
+    step_grow(false);
+    return; });
+
+document.getElementById('ssbut').addEventListener('click', function(){
+    capture = true;
+    step_grow(true);
+    return;});
+
+</script>
+
+<p>
+  Hamiltonian: 
+  $$
+  H = \frac{1}{2}H_{ext}\sum_i \sigma_i + J\sum_{i,j} \sigma_{i} \sigma_{j}
+  $$
+  Flipping probability:
+  $$\exp\left(-\frac{\Delta H}{k_B T}\right)$$
+</p>
+
+</body>
+</html>
