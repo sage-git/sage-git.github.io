@@ -56,12 +56,14 @@ app.renderer.autoResize = true;
 app.stage.interactive = true;
 document.body.appendChild(app.view)
 var capture = false;
+var graphic = new PIXI.Graphics();
+app.stage.addChild(graphic);
+
 function step_grow(only_render) {
     if(!only_render){system.step();}
     var states = system.getState();
-    app.stage.removeChildren();
-    var graphic = new PIXI.Graphics();
     var idx = 0;
+    graphic.clear();
     for(var iy = 0; iy < nHeight; iy ++){
       for(var ix = 0; ix < nWidth; ix ++){
         if(states[idx ++] === -1){continue;}
@@ -75,8 +77,7 @@ function step_grow(only_render) {
         graphic.drawRect(tlx, tly, pixel_width, pixel_width);
       }
     }
-    app.stage.addChild(graphic);
-    app.renderer.render(stage);
+    app.renderer.render(app.stage);
     //document.getElementById("canvas").getContext('experimental-webgl', {preserveDrawingBuffer: true});
     if(capture){
       var image_png = renderer.view.toDataURL();
